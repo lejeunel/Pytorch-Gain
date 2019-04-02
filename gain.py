@@ -10,6 +10,8 @@ import io
 import json
 import math
 import models
+from tensorboardX import SummaryWriter
+import tqdm
 
 model_file_reg = re.compile(
     r'saved_model_(?P<epoch>\d+)_(?P<tag>[a-zA-Z0-9-_]+)\.model')
@@ -356,6 +358,7 @@ class AttentionGAIN:
             raise ValueError('Dataset has labels %s, model has labels %s' %
                              (str(rds.labels), str(self.labels)))
 
+
     def train(self,
               rds,
               epochs,
@@ -366,12 +369,12 @@ class AttentionGAIN:
               num_heatmaps=1):
         # TODO dynamic optimizer selection
         self._check_dataset_compatability(rds)
+        self.writer = SummaryWriter(self.saved_model_dir)
 
         last_acc = 0
         max_acc = 0
         pretrain_finished = False
         opt = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        import pdb; pdb.set_trace()
         for i in range(self.epoch, epochs, 1):
             self.epoch = i
             pretrain_finished = pretrain_finished or \
@@ -380,7 +383,10 @@ class AttentionGAIN:
             loss_am_sum = 0
             acc_cl_sum = 0
             total_loss_sum = 0
+
             # train
+            samp_ = 0
+            pbar = tqdm.tqdm(total=len(rds.datasets['train']))
             for sample in rds.datasets['train']:
                 total_loss, loss_cl, loss_am, probs, acc_cl, A_cs, _ = self.forward(
                     sample['image'], sample['label/onehot'])
@@ -398,14 +404,29 @@ class AttentionGAIN:
                     loss_cl.backward()
 
                 opt.step()
+                samp_ += 1
+                pbar.set_description('[train] loss_cl: {:.4f}, loss_am: {:.4f}'.format(
+                    loss_cl_sum/samp_,
+                    loss_am_sum/samp_))
+                pbar.update(1)
             train_size = len(rds.datasets['train'])
             last_acc = acc_cl_sum / train_size
-            print(
-                '%s Epoch %i, Loss_CL: %f, Loss_AM: %f, Loss Total: %f, Accuracy_CL: %f%%'
-                % (print_prefix,
-                   (i + 1), loss_cl_sum / train_size, loss_am_sum / train_size,
-                   total_loss_sum / train_size, last_acc * 100.0))
 
+            self.writer.add_scalar('train/loss_cl', loss_cl_sum/train_size, i+1)
+            self.writer.add_scalar('train/loss_am', loss_am_sum/train_size, i+1)
+            self.writer.add_scalar('train/loss', total_loss_sum/train_size, i+1)
+            self.writer.add_scalar('train/avg_acc', last_acc*100.0, i+1)
+            print(
+                '{} Epoch {}, Loss_CL: {:.4f}, Loss_AM: {:.4f}, Loss Total: {:.4f}, Accuracy_CL: {:.4f}%%'.format(
+                    print_prefix,
+                    (i + 1),
+                    loss_cl_sum / train_size,
+                    loss_am_sum / train_size,
+                    total_loss_sum / train_size,
+                    last_acc * 100.0))
+
+            samp_ = 0
+            pbar = tqdm.tqdm(total=len(rds.datasets['train']))
             if (i + 1) % test_every_n_epochs == 0:
                 # test
                 loss_cl_sum = 0
@@ -428,6 +449,12 @@ class AttentionGAIN:
                     loss_am_sum += scalar(loss_am)
                     acc_cl_sum += scalar(acc_cl)
 
+                    samp_ += 1
+                    pbar.set_description('[test] loss_cl: {:.4f}, loss_am: {:.4f}'.format(
+                        loss_cl_sum/samp_,
+                        loss_am_sum/samp_))
+                    pbar.update(1)
+
                     if heatmap_count < num_heatmaps:
                         self._maybe_save_heatmap(data[0], label[0], A_cs[0],
                                                  I_stars[0], i + 1,
@@ -436,17 +463,25 @@ class AttentionGAIN:
 
                 test_size = len(rds.datasets['test'])
                 avg_acc = acc_cl_sum / test_size
+                self.writer.add_scalar('test/loss_cl', loss_cl_sum/test_size, i+1)
+                self.writer.add_scalar('test/loss_am', loss_am_sum/test_size, i+1)
+                self.writer.add_scalar('test/loss', total_loss_sum, i+1)
+                self.writer.add_scalar('test/avg_acc', avg_acc*100.0, i+1)
+
                 print(
-                    'TEST Loss_CL: %f, Loss_AM: %f, Loss_Total: %f, Accuracy_CL: %f%%'
-                    % (loss_cl_sum / test_size, loss_am_sum / test_size,
-                       total_loss_sum / test_size, avg_acc * 100.0))
+                    'TEST Loss_CL: {:.4f}, Loss_AM: {:.4f}, Loss_Total: {:.4f}, Accuracy_CL: {:.4f}%%'.format(
+                        loss_cl_sum / test_size,
+                        loss_am_sum / test_size,
+                        total_loss_sum / test_size,
+                        avg_acc * 100.0))
+
 
     def _attention_map_forward(self, data, labels):
         output_cl = self.model(data)
 
         # attention maps
         A_cs = []
-        loss_cl = torch.tensor([0.])
+        loss_cl = torch.tensor([0.], device=data.device)
 
         for label in labels:
 
@@ -489,8 +524,8 @@ class AttentionGAIN:
     def _forward(self, data, labels, extra_super=None):
 
         I_stars = []
-        loss_e = torch.tensor([0.])
-        total_loss = torch.tensor([0.])
+        loss_e = torch.tensor([0.], device=data.device)
+        total_loss = torch.tensor([0.], device=data.device)
 
         output_cl, loss_cl, gcams = self._attention_map_forward(data, labels)
         output_cl_softmax = F.softmax(output_cl, dim=1)

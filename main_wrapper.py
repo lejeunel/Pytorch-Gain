@@ -18,6 +18,10 @@ argv = [
     gradient_layer_name,
     '--input-dims',
     input_dims, input_dims,
+    '--gpus',
+    0,
+    '--output-dir',
+    out_path,
     '--input-channels',
     input_channels]
 
