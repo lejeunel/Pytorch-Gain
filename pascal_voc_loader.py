@@ -15,6 +15,9 @@ from torchvision import transforms
 from skimage import transform
 import imgaug as iaa
 import pandas as pd
+from skimage import draw, io
+import scipy
+import warnings
 
 
 class PascalVOCLoader(data.Dataset):
@@ -83,6 +86,7 @@ class PascalVOCLoader(data.Dataset):
         self.all_files = [
             os.path.splitext(os.path.split(f)[-1])[0] for f in self.all_files
         ]
+
         self.setup_annotations()
 
         # Find images for classification (one object only)
@@ -109,6 +113,30 @@ class PascalVOCLoader(data.Dataset):
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
 
+        self.compute_circle_masks(radius=0.02)
+
+
+    @staticmethod
+    def get_circle_region_mask(map_, radius=30):
+        # get mask of circular shape that contains the most positive pixels
+        radius += 1 if radius%2 else 0
+        r, c = radius, radius
+        shape = (int(2*radius+1), int(2*radius+1))
+        rr, cc = draw.circle(r,
+                                c,
+                                radius,
+                                shape=shape)
+        filt_mask = np.zeros(shape, dtype=int)
+        filt_mask[rr, cc] = 1
+        res = scipy.ndimage.convolve(map_, filt_mask)
+
+        pos = np.unravel_index(np.argmax(res), map_.shape)
+
+        mask = np.zeros(map_.shape, dtype=int)
+        rr, cc = draw.circle(pos[0], pos[1], radius, shape=map_.shape)
+        mask[rr, cc] = 1
+        return mask
+
     def __len__(self):
         return len(self.all_files)
 
@@ -118,6 +146,12 @@ class PascalVOCLoader(data.Dataset):
         im_name = os.path.splitext(os.path.split(truth_path)[-1])[0]
         im_path = pjoin(self.root, "JPEGImages", im_name + ".jpg")
 
+        # path = pjoin(self.root, 'SegmentationClass', 'masks')
+        masks_paths = sorted(glob.glob(pjoin(self.root, 'SegmentationClass',
+                                      'masks', '{}_*.png'.format(truth_path))))
+
+        masks = [(np.asarray(Image.open(m))[..., 0] > 0).astype(int)
+                 for m in masks_paths]
         im = Image.open(pjoin(im_path))
         segm = Image.open(pjoin(self.segm_path, truth_path + ".png"))
         im = np.asarray(im)
@@ -135,6 +169,7 @@ class PascalVOCLoader(data.Dataset):
         out = {
             'image': im,
             'label': truths,
+            'label/extra': masks,
             'label/name': classes,
             'label/idx': class_idx,
             'label/onehot': class_onehot
@@ -143,7 +178,6 @@ class PascalVOCLoader(data.Dataset):
         # apply augmentations
         if (self.augmentations is not None):
             out = self.augmentations(out)
-            # out = self.augmentations()(out)
 
         # normalize and resize
         image = transform.resize(
@@ -160,16 +194,27 @@ class PascalVOCLoader(data.Dataset):
                 mode='reflect')[np.newaxis, ...] for t in out['label']
         ]
 
+        extra = [
+            transform.resize(
+                t,
+                self.transf_shape['truth'],
+                anti_aliasing=True,
+                mode='reflect')[np.newaxis, ...] for t in out['label/extra']
+        ]
+
         image = np.array([
             image[..., c] - self.transf_normalize['mean'][c] for c in range(3)
         ])
         image = [
             image[c, ...] / self.transf_normalize['std'][c] for c in range(3)
         ]
+
         out['image'] = torch.from_numpy(np.array(image)).type(torch.float)
         out['label'] = [torch.from_numpy(t).type(torch.float) for t in truth]
+        out['label/extra'] = [torch.from_numpy(t).type(torch.float) for t in extra]
 
         return out
+
 
     def sample_uniform(self, n=1):
         ids = np.random.choice(np.arange(0, len(self), size=n, replace=False))
@@ -259,7 +304,8 @@ class PascalVOCLoader(data.Dataset):
             return rgb
 
     def setup_annotations(self):
-        """Sets up Berkley annotations by adding image indices to the
+        """
+        Sets up Berkley annotations by adding image indices to the
         `train_aug` split and pre-encode all segmentation labels into the
         common label_mask format (if this has not already been done). This
         function also defines the `train_aug` and `train_aug_val` data splits
@@ -285,26 +331,26 @@ class PascalVOCLoader(data.Dataset):
                 lbl = m.toimage(lbl, high=lbl.max(), low=lbl.min())
                 m.imsave(pjoin(target_path, ii + ".png"), lbl)
 
+    def compute_circle_masks(self, radius):
+        path = pjoin(self.root, 'SegmentationClass', 'masks')
+        if not os.path.exists(path):
+            os.makedirs(path)
 
-# Leave code for debugging purposes
-# import ptsemseg.augmentations as aug
-# if __name__ == '__main__':
-# # local_path = '/home/meetshah1995/datasets/VOCdevkit/VOC2012/'
-# bs = 4
-# augs = aug.Compose([aug.RandomRotate(10), aug.RandomHorizontallyFlip()])
-# dst = pascalVOCLoader(root=local_path, is_transform=True, augmentations=augs)
-# trainloader = data.DataLoader(dst, batch_size=bs)
-# for i, data in enumerate(trainloader):
-# imgs, labels = data
-# imgs = imgs.numpy()[:, ::-1, :, :]
-# imgs = np.transpose(imgs, [0,2,3,1])
-# f, axarr = plt.subplots(bs, 2)
-# for j in range(bs):
-# axarr[j][0].imshow(imgs[j])
-# axarr[j][1].imshow(dst.decode_segmap(labels.numpy()[j]))
-# plt.show()
-# a = raw_input()
-# if a == 'ex':
-# break
-# else:
-# plt.close()
+            pbar = tqdm(total=len(self.all_files))
+            for f in self.all_files:
+                truth_path = f
+                segm = Image.open(pjoin(self.segm_path, truth_path + ".png"))
+                truth = np.asarray(segm)
+                truths = [(truth == l).astype(int) for l in np.unique(truth)[1:]]
+                shape = np.array(truth.shape)
+                for i, t in enumerate(truths):
+                    path_out = pjoin(path, '{}_{}.png'.format(f, i))
+                    if not (os.path.exists(path_out)):
+                        out_filt = PascalVOCLoader.get_circle_region_mask(
+                            t,
+                            radius=np.max(shape)*radius)[..., np.newaxis]
+                        out_filt = (np.repeat(out_filt, 3, axis=-1)*255).astype(np.uint8)
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            io.imsave(path_out, out_filt)
+                pbar.update(1)

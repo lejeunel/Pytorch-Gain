@@ -31,6 +31,18 @@ class TransformerBase:
             label = [l.get_arr_int().astype(np.float32)
                      for l in label]
 
+            if('label/extra' in data_dict.keys()):
+                masks = data_dict['label/extra']
+                masks = [ia.SegmentationMapOnImage(masks[i],
+                                                   shape=image[0].shape,
+                                                   nb_classes=2)
+                        for i in range(len(masks))]
+                masks = [aug_.augment_segmentation_maps([l])[0]
+                        for l in masks]
+                masks = [l.get_arr_int().astype(np.float32)
+                        for l in masks]
+                data_dict['label/extra'] = masks
+
             data_dict['image'] = image[0]
             data_dict['label'] = label
 

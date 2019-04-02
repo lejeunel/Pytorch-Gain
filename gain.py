@@ -66,6 +66,7 @@ class AttentionGAIN:
                  input_channels=None,
                  input_dims=None,
                  batch_norm=True):
+
         # validation
         if not model_type:
             raise ValueError('Missing required argument model_type')
@@ -177,14 +178,14 @@ class AttentionGAIN:
         if self.gpu:
             data = data.cuda()
             label = [l.cuda() for l in label]
-            if (extra_super is not None):
-                extra_super = extra_super.cuda()
+            if(extra_super is not None):
+                extra_super = [e.cuda() for e in extra_super]
 
         data = torch.autograd.Variable(data)
         label = [torch.autograd.Variable(l) for l in label]
 
         if (extra_super is not None):
-            extra_super = torch.autograd.Variable(extra_super)
+            extra_super = [torch.autograd.Variable(e) for e in extra_super]
 
         return data, label, extra_super
 
@@ -389,7 +390,9 @@ class AttentionGAIN:
             pbar = tqdm.tqdm(total=len(rds.datasets['train']))
             for sample in rds.datasets['train']:
                 total_loss, loss_cl, loss_am, probs, acc_cl, A_cs, _ = self.forward(
-                    sample['image'], sample['label/onehot'])
+                    sample['image'],
+                    sample['label/onehot'],
+                    extra_super=sample['label/extra'])
                 total_loss_sum += scalar(total_loss)
                 loss_cl_sum += scalar(loss_cl)
                 loss_am_sum += scalar(loss_am)
@@ -426,7 +429,7 @@ class AttentionGAIN:
                     last_acc * 100.0))
 
             samp_ = 0
-            pbar = tqdm.tqdm(total=len(rds.datasets['train']))
+            pbar = tqdm.tqdm(total=len(rds.datasets['test']))
             if (i + 1) % test_every_n_epochs == 0:
                 # test
                 loss_cl_sum = 0

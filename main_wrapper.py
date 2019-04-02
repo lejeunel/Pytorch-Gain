@@ -16,6 +16,8 @@ argv = [
     model_type,
     '--gradient-layer-name',
     gradient_layer_name,
+    '--omega',
+    '10',
     '--input-dims',
     input_dims, input_dims,
     '--gpus',
