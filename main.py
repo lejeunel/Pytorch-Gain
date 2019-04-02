@@ -84,6 +84,10 @@ def train_handler(args):
 
     print('Starting Training')
     print('=================\n')
+    print('num_epochs: {}'.format(args.num_epochs))
+    print('pretrain_epochs: {}'.format(args.pretrain_epochs))
+    print('learning_rate: {}'.format(args.learning_rate))
+    print('=================')
     model.train(
         rds,
         args.num_epochs,

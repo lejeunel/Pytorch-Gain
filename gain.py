@@ -392,7 +392,7 @@ class AttentionGAIN:
                 total_loss, loss_cl, loss_am, probs, acc_cl, A_cs, _ = self.forward(
                     sample['image'],
                     sample['label/onehot'],
-                    extra_super=sample['label/extra'])
+                    extra_super=sample['label'])
                 total_loss_sum += scalar(total_loss)
                 loss_cl_sum += scalar(loss_cl)
                 loss_am_sum += scalar(loss_am)
@@ -408,7 +408,8 @@ class AttentionGAIN:
 
                 opt.step()
                 samp_ += 1
-                pbar.set_description('[train] loss_cl: {:.4f}, loss_am: {:.4f}'.format(
+                pbar.set_description('[{}] loss_cl: {:.4f}, loss_am: {:.4f}'.format(
+                    print_prefix,
                     loss_cl_sum/samp_,
                     loss_am_sum/samp_))
                 pbar.update(1)
@@ -492,7 +493,6 @@ class AttentionGAIN:
             grad_target.backward(gradient=label * output_cl, retain_graph=True)
 
             # Eq 1
-            grad = self._last_grad
             w_c = F.avg_pool2d(
                 self._last_grad,
                 (self._last_grad.shape[-2], self._last_grad.shape[-1]), 1)
@@ -546,10 +546,12 @@ class AttentionGAIN:
 
             # Eq 5
             loss_am = F.sigmoid(
-                output_am[0, :][label[0, :].nonzero().view(-1)])
+                output_am.view(-1)[label.view(-1).nonzero().view(-1)])
 
             total_loss += self.alpha * loss_am
             # Eq 7 (extra supervision)
+
+            import pdb; pdb.set_trace()
             if (extra is not None):
                 loss_e += ((gcam - extra)**2).sum()
                 total_loss += self.omega * loss_e
