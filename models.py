@@ -13,12 +13,8 @@ def get_model(model_type, output_length, batch_norm, num_channels=3):
         model = model(output_length, num_channels, batch_norm=batch_norm)
     else:
         model = getattr(torchvision.models, model_type)
-        model = model(pretrained=True)
-
-        # modify last layer to adjust output_length
-        model.classifier[-1] = torch.nn.Linear(in_features=4096,
-                                            out_features=output_length,
-                                            bias=True)
+        model = getattr(torchvision.models, model_type)
+        model = model(pretrained=False, num_classes=output_length)
     return model
 
 def model_to_str(model):

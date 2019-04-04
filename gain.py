@@ -560,7 +560,7 @@ class AttentionGAIN:
             # Eq 7 (extra supervision)
 
             if (extra is not None):
-                loss_e += ((gcam - extra)**2).sum()
+                loss_e = ((gcam - extra)**2).sum()
                 total_loss += self.omega * loss_e
 
         cl_acc = output_cl_softmax.max(dim=1)[1] == label.max(dim=1)[1]

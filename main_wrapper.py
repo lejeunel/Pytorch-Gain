@@ -23,7 +23,7 @@ argv = [
     '--gpus',
     '0',
     '--pretrain-epochs',
-    '-1',
+    '5',
     '--output-dir',
     out_path,
     '--input-channels',
