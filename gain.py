@@ -21,34 +21,6 @@ def scalar(tensor):
     return tensor.data.cpu().item()
 
 
-def tile_images(images, num_wide=5):
-    # dummy check
-    if len(images) == 1:
-        return images[0]
-
-    shape = images[0].shape
-    num_high = math.ceil(len(images) / float(num_wide))
-    num_high = int(num_high)
-
-    if len(images) < num_wide:
-        num_wide = len(images)
-
-    output_img = np.zeros((num_high * shape[0], num_wide * shape[1], shape[2]),
-                          dtype=np.uint8)
-    for i in range(len(images)):
-        curr_image = images[i]
-        if curr_image.shape != shape:
-            print(
-                'WARNING image shape is not consistent, images are all resized to %s'
-                % str(shape))
-            curr_image = cv2.resize(curr_image, shape[:2])
-        if len(curr_image.shape) == 2:
-            curr_image = np.expand_dims(curr_image, 2)
-        y = i % num_wide * shape[0]
-        x = int(i / num_wide) * shape[1]
-        output_img[x:x + shape[0], y:y + shape[1], :] = curr_image
-    return output_img
-
 
 class AttentionGAIN:
     def __init__(self,
@@ -279,24 +251,18 @@ class AttentionGAIN:
 
     def _maybe_save_heatmap(self, image, label, heatmap, I_star, epoch,
                             heatmap_nbr):
+
         if self.heatmap_dir is None:
             return
 
         heatmap_image = self._combine_heatmap_with_image(
             image, heatmap, self.labels[label])
 
-        I_star = I_star.data.cpu().numpy().transpose((1, 2, 0)) * 255.0
-        out_image = tile_images([heatmap_image, I_star])
+        I_star = (I_star.data.cpu().numpy().transpose((1, 2, 0)) * 255).astype(np.uint8)
+        out_image = np.concatenate((heatmap_image, I_star), axis=1)
+        out_image = torch.tensor(out_image.transpose((2, 0, 1)))
 
-        # write it to a file
-        if not os.path.exists(self.heatmap_dir):
-            os.makedirs(self.heatmap_dir)
-
-        out_file = os.path.join(self.heatmap_dir,
-                                'epoch_%i_%i.png' % (epoch, heatmap_nbr))
-        cv2.imwrite(out_file, out_image)
-
-        print('HEATMAP saved to %s' % out_file)
+        self.writer.add_image('heatmap', out_image, epoch)
 
     @staticmethod
     def _combine_heatmap_with_image(image,
@@ -306,6 +272,11 @@ class AttentionGAIN:
                                     font_name=cv2.FONT_HERSHEY_SIMPLEX,
                                     font_color=(255, 255, 255),
                                     font_pixel_width=1):
+
+
+        image = image.data.cpu().numpy().transpose((1, 2, 0)) * 255
+        image = image.astype(np.uint8)
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         # get the min and max values once to be used with scaling
         min_val = heatmap.min()
         max_val = heatmap.max()
@@ -316,16 +287,8 @@ class AttentionGAIN:
                                                                          0))
         heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
 
-        # Scale the image as well
-        scaled_image = image * 255.0
-        scaled_image = scaled_image.cpu().numpy().astype(np.uint8).transpose(
-            (1, 2, 0))
-
-        if scaled_image.shape[2] == 1:
-            scaled_image = cv2.cvtColor(scaled_image, cv2.COLOR_GRAY2RGB)
-
         # generate the heatmap
-        heatmap_image = cv2.addWeighted(scaled_image, 0.7, heatmap, 0.3, 0)
+        heatmap_image = cv2.addWeighted(image, 0.7, heatmap, 0.3, 0)
 
         # superimpose label_name
         (_, text_size_h), baseline = cv2.getTextSize(
@@ -337,6 +300,7 @@ class AttentionGAIN:
             font_scale,
             font_color,
             thickness=font_pixel_width)
+        heatmap_image = cv2.cvtColor(heatmap_image, cv2.COLOR_BGR2RGB)
         return heatmap_image
 
     def generate_heatmap(self, data, label, width=3):
@@ -467,19 +431,17 @@ class AttentionGAIN:
                 total_loss_sum = 0
                 heatmap_count = 0
                 for sample in rds.datasets['test']:
-                    data = sample['image']
-                    label_onehot = sample['label/onehot']
-                    label = sample['label/idx']
-
                     # test
                     r = self.forward(
-                        data,
-                        label_onehot)
+                        sample['image'],
+                        sample['label/onehot'],
+                        extra_super=sample['label/truths'],
+                        am_mask=sample['label/masks'])
 
                     total_loss_sum += scalar(r['total_loss'])
                     loss_cl_sum += scalar(r['loss_cl'])
                     loss_am_sum += scalar(r['loss_am'])
-                    acc_cl_sum += scalar(r['acc_cl'])
+                    acc_cl_sum += scalar(r['cl_acc'])
 
                     samp_ += 1
                     pbar.set_description('[test] loss_cl: {:.4f}, loss_am: {:.4f}'.format(
@@ -487,9 +449,12 @@ class AttentionGAIN:
                         loss_am_sum/samp_))
                     pbar.update(1)
 
-                    if heatmap_count < num_heatmaps:
-                        self._maybe_save_heatmap(data[0], label[0], r['gcams'][0],
-                                                 r['I_stars'][0], i + 1,
+                    if(heatmap_count < num_heatmaps):
+                        self._maybe_save_heatmap(sample['image'][0],
+                                                 sample['label/idx'][0],
+                                                 r['gcams'][0][0],
+                                                 r['I_stars'][0][0],
+                                                 i + 1,
                                                  heatmap_count)
                         heatmap_count += 1
 
@@ -550,6 +515,7 @@ class AttentionGAIN:
         scaled_gcam = (gcam - gcam_min) / (gcam_max - gcam_min)
         mask = F.sigmoid(self.omega * (scaled_gcam - self.sigma)).squeeze()
         masked_image = image - (image * mask)
+
         return masked_image
 
     def _forward(self, data, labels, extra_super=None, am_mask=None):
