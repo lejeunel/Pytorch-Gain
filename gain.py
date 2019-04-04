@@ -394,6 +394,8 @@ class AttentionGAIN:
             # train
             samp_ = 0
             pbar = tqdm.tqdm(total=len(rds.datasets['train']))
+            train_size = len(rds.datasets['train'])
+
             for sample in rds.datasets['train']:
                 r = self.forward(
                     sample['image'],
@@ -406,13 +408,11 @@ class AttentionGAIN:
                 loss_am_sum += scalar(r['loss_am'])
                 acc_cl_sum += scalar(r['cl_acc'])
 
+                samp_ += 1
+
                 # Backprop selectively based on pretraining/training
                 if pretrain_finished:
                     print_prefix = 'train'
-                    self.writer.add_scalar('train/loss_am', loss_am_sum/train_size, i+1)
-                    self.writer.add_scalar('train/loss', total_loss_sum/train_size, i+1)
-                    self.writer.add_scalar('train/avg_acc', last_acc*100.0, i+1)
-                    self.writer.add_scalar('train/loss_cl', loss_cl_sum/train_size, i+1)
 
                     r['total_loss'].backward()
 
@@ -422,7 +422,6 @@ class AttentionGAIN:
                         loss_am_sum/samp_))
                 else:
                     print_prefix = 'pretrain'
-                    self.writer.add_scalar('train/loss_cl', loss_cl_sum/train_size, i+1)
 
                     r['loss_cl'].backward()
 
@@ -431,20 +430,32 @@ class AttentionGAIN:
                         loss_cl_sum/samp_))
 
                 opt.step()
-                samp_ += 1
                 pbar.update(1)
-            train_size = len(rds.datasets['train'])
+
             last_acc = acc_cl_sum / train_size
 
-            self.writer.add_scalar('train/loss_cl', loss_cl_sum/train_size, i+1)
-            print(
-                '{} Epoch {}, Loss_CL: {:.4f}, Loss_AM: {:.4f}, Loss Total: {:.4f}, Accuracy_CL: {:.4f}%%'.format(
-                    print_prefix,
-                    (i + 1),
-                    loss_cl_sum / train_size,
-                    loss_am_sum / train_size,
-                    total_loss_sum / train_size,
-                    last_acc * 100.0))
+            if(pretrain_finished):
+                self.writer.add_scalar('train/loss_am', loss_am_sum/train_size, i+1)
+                self.writer.add_scalar('train/loss', total_loss_sum/train_size, i+1)
+                self.writer.add_scalar('train/avg_acc', last_acc*100.0, i+1)
+                self.writer.add_scalar('train/loss_cl', loss_cl_sum/train_size, i+1)
+                print(
+                    '{} Epoch {}, Loss_CL: {:.4f}, Loss_AM: {:.4f}, Loss Total: {:.4f}, Accuracy_CL: {:.4f}%%'.format(
+                        print_prefix,
+                        (i + 1),
+                        loss_cl_sum / train_size,
+                        loss_am_sum / train_size,
+                        total_loss_sum / train_size,
+                        last_acc * 100.0))
+            else:
+                self.writer.add_scalar('pretrain/loss_cl', loss_cl_sum/train_size, i+1)
+                print(
+                    '{} Epoch {}, Loss_CL: {:.4f}, Accuracy_CL: {:.4f}%'.format(
+                        print_prefix,
+                        (i + 1),
+                        loss_cl_sum / train_size,
+                        last_acc * 100.0))
+
 
             samp_ = 0
             pbar = tqdm.tqdm(total=len(rds.datasets['test']))

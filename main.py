@@ -83,7 +83,7 @@ def train_handler(args):
         model = gain.AttentionGAIN(**gain_args)
 
     print('Starting Training')
-    print('=================\n')
+    print('=================')
     print('num_epochs: {}'.format(args.num_epochs))
     print('pretrain_epochs: {}'.format(args.pretrain_epochs))
     print('learning_rate: {}'.format(args.learning_rate))
