@@ -173,21 +173,27 @@ class AttentionGAIN:
 
         return ret_str
 
-    def _convert_data_and_label(self, data, label, extra_super=None):
+    def _convert_data_and_label(self, data, label,
+                                extra_super=None,
+                                am_mask=None):
         # converts our data and label over to variables, gpu optional
         if self.gpu:
             data = data.cuda()
             label = [l.cuda() for l in label]
             if(extra_super is not None):
                 extra_super = [e.cuda() for e in extra_super]
+            if(am_mask is not None):
+                am_mask = [e.cuda() for e in am_mask]
 
         data = torch.autograd.Variable(data)
         label = [torch.autograd.Variable(l) for l in label]
 
         if (extra_super is not None):
             extra_super = [torch.autograd.Variable(e) for e in extra_super]
+        if (am_mask is not None):
+            am_mask = [torch.autograd.Variable(e) for e in am_mask]
 
-        return data, label, extra_super
+        return data, label, extra_super, am_mask
 
     def _maybe_save_model(self, serialization, tag='default', save_count=1):
         # TODO if a different save count but same tag is used in different circumstances, this will have
@@ -341,10 +347,10 @@ class AttentionGAIN:
         heatmap = self._combine_heatmap_with_image(data[0], A_c[0], label_name)
         return output_cl, loss_cl, A_c, heatmap
 
-    def forward(self, data, label, extra_super=None):
-        data, label, extra_super = self._convert_data_and_label(
-            data, label, extra_super)
-        return self._forward(data, label, extra_super)
+    def forward(self, data, label, extra_super=None, am_mask=None):
+        data, label, extra_super, am_mask = self._convert_data_and_label(
+            data, label, extra_super, am_mask)
+        return self._forward(data, label, extra_super, am_mask)
 
     def _check_dataset_compatability(self, rds):
         if rds.output_dims != self.input_dims:
@@ -389,22 +395,23 @@ class AttentionGAIN:
             samp_ = 0
             pbar = tqdm.tqdm(total=len(rds.datasets['train']))
             for sample in rds.datasets['train']:
-                total_loss, loss_cl, loss_am, probs, acc_cl, A_cs, _ = self.forward(
+                r = self.forward(
                     sample['image'],
                     sample['label/onehot'],
-                    extra_super=sample['label'])
-                total_loss_sum += scalar(total_loss)
-                loss_cl_sum += scalar(loss_cl)
-                loss_am_sum += scalar(loss_am)
-                acc_cl_sum += scalar(acc_cl)
+                    extra_super=sample['label/truths'],
+                    am_mask=sample['label/masks'])
+                total_loss_sum += scalar(r['total_loss'])
+                loss_cl_sum += scalar(r['loss_cl'])
+                loss_am_sum += scalar(r['loss_am'])
+                acc_cl_sum += scalar(r['cl_acc'])
 
                 # Backprop selectively based on pretraining/training
                 if pretrain_finished:
                     print_prefix = 'TRAIN'
-                    total_loss.backward()
+                    r['total_loss'].backward()
                 else:
                     print_prefix = 'PRETRAIN'
-                    loss_cl.backward()
+                    r['loss_cl'].backward()
 
                 opt.step()
                 samp_ += 1
@@ -444,14 +451,14 @@ class AttentionGAIN:
                     label = sample['label/idx']
 
                     # test
-                    total_loss, loss_cl, loss_am, prob, acc_cl, A_cs, I_stars = self.forward(
+                    r = self.forward(
                         data,
                         label_onehot)
 
-                    total_loss_sum += scalar(total_loss)
-                    loss_cl_sum += scalar(loss_cl)
-                    loss_am_sum += scalar(loss_am)
-                    acc_cl_sum += scalar(acc_cl)
+                    total_loss_sum += scalar(r['total_loss'])
+                    loss_cl_sum += scalar(r['loss_cl'])
+                    loss_am_sum += scalar(r['loss_am'])
+                    acc_cl_sum += scalar(r['acc_cl'])
 
                     samp_ += 1
                     pbar.set_description('[test] loss_cl: {:.4f}, loss_am: {:.4f}'.format(
@@ -460,8 +467,8 @@ class AttentionGAIN:
                     pbar.update(1)
 
                     if heatmap_count < num_heatmaps:
-                        self._maybe_save_heatmap(data[0], label[0], A_cs[0],
-                                                 I_stars[0], i + 1,
+                        self._maybe_save_heatmap(data[0], label[0], r['gcams'][0],
+                                                 r['I_stars'][0], i + 1,
                                                  heatmap_count)
                         heatmap_count += 1
 
@@ -524,7 +531,7 @@ class AttentionGAIN:
         masked_image = image - (image * mask)
         return masked_image
 
-    def _forward(self, data, labels, extra_super=None):
+    def _forward(self, data, labels, extra_super=None, am_mask=None):
 
         I_stars = []
         loss_e = torch.tensor([0.], device=data.device)
@@ -551,7 +558,6 @@ class AttentionGAIN:
             total_loss += self.alpha * loss_am
             # Eq 7 (extra supervision)
 
-            import pdb; pdb.set_trace()
             if (extra is not None):
                 loss_e += ((gcam - extra)**2).sum()
                 total_loss += self.omega * loss_e
@@ -559,4 +565,11 @@ class AttentionGAIN:
         cl_acc = output_cl_softmax.max(dim=1)[1] == label.max(dim=1)[1]
         cl_acc = cl_acc.type(self.tensor_source.FloatTensor).mean()
 
-        return total_loss, loss_cl, loss_am, output_cl_softmax, cl_acc, gcams, I_stars
+        return {'total_loss': total_loss,
+                'loss_cl': loss_cl,
+                'loss_am': loss_am,
+                'loss_e': loss_e,
+                'output_cl_softmax': output_cl_softmax,
+                'cl_acc': cl_acc,
+                'gcams': gcams,
+                'I_stars': I_stars} 

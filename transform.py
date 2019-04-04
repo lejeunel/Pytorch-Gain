@@ -18,21 +18,21 @@ class TransformerBase:
     def __call__(self, data_dict):
         if not self.transform_labels or data_dict['label/name'] in self.transform_labels:
             image = data_dict['image']
-            label = data_dict['label']
+            label = data_dict['label/truths']
             aug_ = self.augmenter.to_deterministic()
             image = aug_.augment_images([image])
             image = [im.astype(np.float32)/255.0 for im in image]
-            label = [ia.SegmentationMapOnImage(label[i],
+            truth = [ia.SegmentationMapOnImage(label[i],
                                                shape=image[0].shape,
                                                nb_classes=2)
                      for i in range(len(label))]
-            label = [aug_.augment_segmentation_maps([l])[0]
-                     for l in label]
-            label = [l.get_arr_int().astype(np.float32)
-                     for l in label]
+            truth = [aug_.augment_segmentation_maps([l])[0]
+                     for l in truth]
+            truth = [l.get_arr_int().astype(np.float32)
+                     for l in truth]
 
-            if('label/extra' in data_dict.keys()):
-                masks = data_dict['label/extra']
+            if('label/masks' in data_dict.keys()):
+                masks = data_dict['label/masks']
                 masks = [ia.SegmentationMapOnImage(masks[i],
                                                    shape=image[0].shape,
                                                    nb_classes=2)
@@ -41,10 +41,11 @@ class TransformerBase:
                         for l in masks]
                 masks = [l.get_arr_int().astype(np.float32)
                         for l in masks]
-                data_dict['label/extra'] = masks
+                data_dict['label/masks'] = masks
 
             data_dict['image'] = image[0]
-            data_dict['label'] = label
+            data_dict['label/truths'] = truth
+            data_dict['label/masks'] = masks
 
         return data_dict
 

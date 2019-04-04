@@ -168,8 +168,8 @@ class PascalVOCLoader(data.Dataset):
 
         out = {
             'image': im,
-            'label': truths,
-            'label/extra': masks,
+            'label/truths': truths,
+            'label/masks': masks,
             'label/name': classes,
             'label/idx': class_idx,
             'label/onehot': class_onehot
@@ -186,20 +186,20 @@ class PascalVOCLoader(data.Dataset):
             anti_aliasing=True,
             mode='reflect')
 
-        truth = [
+        truths = [
             transform.resize(
                 t,
                 self.transf_shape['truth'],
                 anti_aliasing=True,
-                mode='reflect')[np.newaxis, ...] for t in out['label']
+                mode='reflect')[np.newaxis, ...] for t in out['label/truths']
         ]
 
-        extra = [
+        masks = [
             transform.resize(
                 t,
                 self.transf_shape['truth'],
                 anti_aliasing=True,
-                mode='reflect')[np.newaxis, ...] for t in out['label/extra']
+                mode='reflect')[np.newaxis, ...] for t in out['label/masks']
         ]
 
         image = np.array([
@@ -210,8 +210,8 @@ class PascalVOCLoader(data.Dataset):
         ]
 
         out['image'] = torch.from_numpy(np.array(image)).type(torch.float)
-        out['label'] = [torch.from_numpy(t).type(torch.float) for t in truth]
-        out['label/extra'] = [torch.from_numpy(t).type(torch.float) for t in extra]
+        out['label/truths'] = [torch.from_numpy(t).type(torch.float) for t in truths]
+        out['label/masks'] = [torch.from_numpy(t).type(torch.float) for t in masks]
 
         return out
 
