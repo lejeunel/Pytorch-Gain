@@ -400,6 +400,7 @@ class AttentionGAIN:
                     sample['label/onehot'],
                     extra_super=sample['label/truths'],
                     am_mask=sample['label/masks'])
+
                 total_loss_sum += scalar(r['total_loss'])
                 loss_cl_sum += scalar(r['loss_cl'])
                 loss_am_sum += scalar(r['loss_am'])
