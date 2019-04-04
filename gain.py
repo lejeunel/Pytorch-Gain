@@ -408,26 +408,35 @@ class AttentionGAIN:
 
                 # Backprop selectively based on pretraining/training
                 if pretrain_finished:
-                    print_prefix = 'TRAIN'
+                    print_prefix = 'train'
+                    self.writer.add_scalar('train/loss_am', loss_am_sum/train_size, i+1)
+                    self.writer.add_scalar('train/loss', total_loss_sum/train_size, i+1)
+                    self.writer.add_scalar('train/avg_acc', last_acc*100.0, i+1)
+                    self.writer.add_scalar('train/loss_cl', loss_cl_sum/train_size, i+1)
+
                     r['total_loss'].backward()
+
+                    pbar.set_description('[{}] loss_cl: {:.4f}, loss_am: {:.4f}'.format(
+                        print_prefix,
+                        loss_cl_sum/samp_,
+                        loss_am_sum/samp_))
                 else:
-                    print_prefix = 'PRETRAIN'
+                    print_prefix = 'pretrain'
+                    self.writer.add_scalar('train/loss_cl', loss_cl_sum/train_size, i+1)
+
                     r['loss_cl'].backward()
+
+                    pbar.set_description('[{}] loss_cl: {:.4f}'.format(
+                        print_prefix,
+                        loss_cl_sum/samp_))
 
                 opt.step()
                 samp_ += 1
-                pbar.set_description('[{}] loss_cl: {:.4f}, loss_am: {:.4f}'.format(
-                    print_prefix,
-                    loss_cl_sum/samp_,
-                    loss_am_sum/samp_))
                 pbar.update(1)
             train_size = len(rds.datasets['train'])
             last_acc = acc_cl_sum / train_size
 
             self.writer.add_scalar('train/loss_cl', loss_cl_sum/train_size, i+1)
-            self.writer.add_scalar('train/loss_am', loss_am_sum/train_size, i+1)
-            self.writer.add_scalar('train/loss', total_loss_sum/train_size, i+1)
-            self.writer.add_scalar('train/avg_acc', last_acc*100.0, i+1)
             print(
                 '{} Epoch {}, Loss_CL: {:.4f}, Loss_AM: {:.4f}, Loss Total: {:.4f}, Accuracy_CL: {:.4f}%%'.format(
                     print_prefix,
