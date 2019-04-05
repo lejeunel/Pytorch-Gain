@@ -202,14 +202,15 @@ class PascalVOCLoader(data.Dataset):
                 mode='reflect')[np.newaxis, ...] for t in out['label/masks']
         ]
 
-        # image = np.array([
-        #     image[..., c] - self.transf_normalize['mean'][c] for c in range(3)
-        # ])
-        # image = [
-        #     image[c, ...] / self.transf_normalize['std'][c] for c in range(3)
-        # ]
+        image = np.array([
+            image[..., c] - self.transf_normalize['mean'][c] for c in range(3)
+        ])
+        image = [
+            image[c, ...] / self.transf_normalize['std'][c] for c in range(3)
+        ]
 
-        image = image.transpose((2, 0, 1))
+        # image = image.transpose((2, 0, 1))
+        image = np.array(image)
         out['image'] = torch.from_numpy(np.array(image)).type(torch.float)
         out['label/truths'] = [torch.from_numpy(t).type(torch.float) for t in truths]
         out['label/masks'] = [torch.from_numpy(t).type(torch.float) for t in masks]

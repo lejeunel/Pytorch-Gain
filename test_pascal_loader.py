@@ -26,6 +26,7 @@ sample = loader[ind]
 im_ = sample['image'].numpy().transpose((1, 2, 0))
 truth_ = sample['label/truths'][0].numpy().transpose((1, 2, 0))
 mask_ = sample['label/masks'][0].numpy().transpose((1, 2, 0))
+print(sample['label/name'])
 
 plt.subplot(221)
 plt.imshow(im_)

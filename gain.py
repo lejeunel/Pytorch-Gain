@@ -361,6 +361,7 @@ class AttentionGAIN:
             train_size = len(rds.datasets['train'])
 
             for sample in rds.datasets['train']:
+
                 r = self.forward(
                     sample['image'],
                     sample['label/onehot'],
@@ -420,7 +421,6 @@ class AttentionGAIN:
                         loss_cl_sum / train_size,
                         last_acc * 100.0))
 
-
             samp_ = 0
             pbar = tqdm.tqdm(total=len(rds.datasets['test']))
             if (i + 1) % test_every_n_epochs == 0:
@@ -457,6 +457,9 @@ class AttentionGAIN:
                                                  i + 1,
                                                  heatmap_count)
                         heatmap_count += 1
+                    self._maybe_save_model('pth',
+                                           tag='default',
+                                           save_count=15)
 
                 test_size = len(rds.datasets['test'])
                 avg_acc = acc_cl_sum / test_size
@@ -543,8 +546,8 @@ class AttentionGAIN:
                 output_am.view(-1)[label.view(-1).nonzero().view(-1)])
 
             total_loss += self.alpha * loss_am
-            # Eq 7 (extra supervision)
 
+            # Eq 7 (extra supervision)
             if (extra is not None):
                 loss_e = ((gcam - extra)**2).sum()
                 total_loss += self.omega * loss_e
